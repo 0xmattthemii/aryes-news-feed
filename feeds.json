@@ -1,0 +1,35 @@
+{
+  "technology": [
+    { "name": "MIT Technology Review", "url": "https://www.technologyreview.com/feed/" },
+    { "name": "TechCrunch", "url": "https://techcrunch.com/feed/" },
+    { "name": "Wired", "url": "https://www.wired.com/feed/rss" },
+    { "name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index" },
+    { "name": "The Block", "url": "https://www.theblock.co/rss.xml" },
+    { "name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/" },
+    { "name": "Cointelegraph", "url": "https://cointelegraph.com/rss" },
+    { "name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/" },
+    { "name": "Dark Reading", "url": "https://www.darkreading.com/rss.xml" }
+  ],
+
+  "corporate_finance": [
+    { "name": "Financial Times", "url": "https://www.ft.com/rss/home" },
+    { "name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss" },
+    { "name": "Harvard Law Corporate Governance", "url": "https://corpgov.law.harvard.edu/feed/" },
+    { "name": "Real Deals", "url": "https://realdeals.eu.com/feed/" },
+    { "name": "Private Equity International", "url": "https://www.privateequityinternational.com/feed/" },
+    { "name": "TechCrunch Venture", "url": "https://techcrunch.com/category/venture/feed/" },
+    { "name": "PitchBook News", "url": "https://pitchbook.com/news/feed" },
+    { "name": "finews.com", "url": "https://www.finews.com/news/english-news/feed" }
+  ],
+
+  "eam_build_up": [
+    { "name": "finews.com", "url": "https://www.finews.com/news/english-news/feed" },
+    { "name": "FINMA News", "url": "https://www.finma.ch/en/rss/news/" },
+    { "name": "Citywire Wealth Manager", "url": "https://citywire.com/wealth-manager/news/rss" },
+    { "name": "Citywire Selector", "url": "https://citywire.com/selector/news/rss" },
+    { "name": "International Adviser", "url": "https://www.international-adviser.com/feed/" },
+    { "name": "Private Banker International", "url": "https://www.privatebankerinternational.com/feed/" },
+    { "name": "Real Deals", "url": "https://realdeals.eu.com/feed/" },
+    { "name": "L'Agefi", "url": "https://www.agefi.fr/rss" }
+  ]
+}

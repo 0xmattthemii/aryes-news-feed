@@ -1,0 +1,17 @@
+services:
+  - type: cron
+    name: aryes-news-feed
+    runtime: docker
+    schedule: "*/30 * * * *"
+    dockerfilePath: ./Dockerfile
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SLACK_WEBHOOK_TECHNOLOGY
+        sync: false
+      - key: SLACK_WEBHOOK_CORPORATE_FINANCE
+        sync: false
+      - key: SLACK_WEBHOOK_EAM_BUILD_UP
+        sync: false
