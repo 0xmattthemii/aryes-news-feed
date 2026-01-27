@@ -1,8 +1,7 @@
 services:
-  - type: cron
+  - type: worker
     name: aryes-news-feed
     runtime: docker
-    schedule: "*/30 * * * *"
     dockerfilePath: ./Dockerfile
     disk:
       name: data

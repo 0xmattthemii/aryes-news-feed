@@ -205,4 +205,14 @@ async function main() {
   console.log("\nDone!");
 }
 
-main().catch(console.error);
+// Run immediately, then every 30 minutes
+async function run() {
+  await main().catch(console.error);
+}
+
+const THIRTY_MINUTES = 30 * 60 * 1000;
+
+run();
+setInterval(run, THIRTY_MINUTES);
+
+console.log("Scheduler started. Running every 30 minutes.");
