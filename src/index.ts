@@ -39,13 +39,55 @@ const WEBHOOK_MAP: Record<Category, string | undefined> = {
   eam_build_up: process.env.SLACK_WEBHOOK_EAM_BUILD_UP,
 };
 
-const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
-  technology:
-    "Technology news including software, hardware, AI, blockchain, crypto, cybersecurity, and tech industry updates",
-  corporate_finance:
-    "Corporate finance news including M&A, private equity, venture capital, IPOs, fundraising, and financial markets",
-  eam_build_up:
-    "External Asset Manager (EAM) and wealth management news including private banking, wealth management regulations, Swiss finance (FINMA), and independent asset management",
+const CATEGORY_PROMPTS: Record<Category, string> = {
+  technology: `Aryes Advisory provides technology consulting to financial services and corporate clients.
+
+RELEVANT (answer "yes"):
+- AI and machine learning developments, especially enterprise applications
+- Blockchain and digital assets: institutional adoption, infrastructure, regulation
+- Cybersecurity threats and solutions
+- Digital transformation in banking and finance
+- Fintech innovation
+
+NOT RELEVANT (answer "no"):
+- Consumer gadgets and product reviews
+- Gaming news
+- Social media drama or celebrity tech news
+- Crypto price movements and market speculation`,
+
+  corporate_finance: `Aryes Advisory advises on M&A, fundraising, and valuations across Europe and Switzerland.
+
+RELEVANT (answer "yes"):
+- Mergers and acquisitions: deal announcements, trends, analysis
+- Private equity and venture capital activity
+- Funding rounds and exits
+- Corporate strategy and valuation trends
+- European and Swiss deal flow
+- Financial regulation impacting transactions
+
+NOT RELEVANT (answer "no"):
+- Stock market daily movements
+- Personal finance tips
+- Retail banking products
+- Earnings reports without strategic significance`,
+
+  eam_build_up: `Aryes is building a capital arm to acquire and consolidate Swiss external asset managers (EAMs).
+
+RELEVANT (answer "yes"):
+- Swiss wealth management industry news
+- EAM and independent asset manager consolidation
+- Private banking M&A
+- FINMA regulatory changes affecting asset managers
+- Family office trends
+- European wealth management consolidation
+- Key players: UBS, Julius Baer, Pictet, Lombard Odier, Vontobel, EFG, etc.
+- AuM movements and senior hires in Swiss private banking
+
+NOT RELEVANT (answer "no"):
+- Retail banking news
+- General investment advice
+- Fund performance rankings
+- US-only wealth management news`,
 };
 
 // Custom parser to extract media content
@@ -169,8 +211,11 @@ async function isRelevant(
         messages: [
           {
             role: "user",
-            content: `Is this article relevant for the category "${category}" (${CATEGORY_DESCRIPTIONS[category]})?
+            content: `Is this article relevant for Aryes Advisory's "${category.replace(/_/g, " ")}" news feed?
 
+${CATEGORY_PROMPTS[category]}
+
+ARTICLE TO EVALUATE:
 Title: ${article.title}
 Summary: ${article.summary}
 
@@ -207,34 +252,32 @@ async function postToSlack(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*<${article.link}|${article.title}>*\n_${article.source}_`,
+          text: `*<${article.link}|${article.title}>*\n_${article.source}_\n\n${article.summary || "No summary available."}`,
         },
       },
     ];
 
-    // Add image if available
+    // Add small thumbnail in context block if available
     if (article.imageUrl) {
       blocks.push({
-        type: "image",
-        image_url: article.imageUrl,
-        alt_text: article.title,
+        type: "context",
+        elements: [
+          {
+            type: "image",
+            image_url: article.imageUrl,
+            alt_text: article.title,
+          },
+        ],
       });
     }
 
-    // Add summary
-    blocks.push({
-      type: "section",
-      text: {
-        type: "plain_text",
-        text: article.summary || "No summary available.",
-        emoji: true,
-      },
-    });
+    // Add divider for clear separation
+    blocks.push({ type: "divider" });
 
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks }),
+      body: JSON.stringify({ blocks, unfurl_links: false, unfurl_media: false }),
     });
     return response.ok;
   } catch (error) {
