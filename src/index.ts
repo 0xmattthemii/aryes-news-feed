@@ -17,18 +17,59 @@ interface PostedArticles {
   [url: string]: number; // timestamp when posted
 }
 
+interface Article {
+  title: string;
+  link: string;
+  source: string;
+  summary: string;
+  imageUrl?: string;
+}
+
 type Category = keyof FeedsConfig;
 
 // Config
 const POSTED_FILE = process.env.DATA_PATH || "./posted.json";
 const FEEDS_FILE = "./feeds.json";
 const HOURS_24 = 24 * 60 * 60 * 1000;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 const WEBHOOK_MAP: Record<Category, string | undefined> = {
   technology: process.env.SLACK_WEBHOOK_TECHNOLOGY,
   corporate_finance: process.env.SLACK_WEBHOOK_CORPORATE_FINANCE,
   eam_build_up: process.env.SLACK_WEBHOOK_EAM_BUILD_UP,
 };
+
+const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
+  technology:
+    "Technology news including software, hardware, AI, blockchain, crypto, cybersecurity, and tech industry updates",
+  corporate_finance:
+    "Corporate finance news including M&A, private equity, venture capital, IPOs, fundraising, and financial markets",
+  eam_build_up:
+    "External Asset Manager (EAM) and wealth management news including private banking, wealth management regulations, Swiss finance (FINMA), and independent asset management",
+};
+
+// Custom parser to extract media content
+type CustomFeed = Record<string, unknown>;
+type CustomItem = {
+  "media:content"?: { $?: { url?: string } };
+  "media:thumbnail"?: { $?: { url?: string } };
+  enclosure?: { url?: string };
+  content?: string;
+};
+
+const parser = new Parser<CustomFeed, CustomItem>({
+  timeout: 10000,
+  headers: {
+    "User-Agent": "Mozilla/5.0 (compatible; RSSBot/1.0)",
+  },
+  customFields: {
+    item: [
+      ["media:content", "media:content"],
+      ["media:thumbnail", "media:thumbnail"],
+      ["enclosure", "enclosure"],
+    ],
+  },
+});
 
 // Load posted articles
 function loadPosted(): PostedArticles {
@@ -67,41 +108,133 @@ function truncate(text: string, maxLength: number): string {
 
 // Extract summary from item
 function getSummary(item: Parser.Item): string {
-  const content = item.contentSnippet || item.content || item.summary || "";
+  const content =
+    item.contentSnippet || item.content || (item as { summary?: string }).summary || "";
   // Strip HTML and truncate
   const text = content.replace(/<[^>]*>/g, "").trim();
   return truncate(text, 200);
 }
 
+// Extract image URL from item
+function getImageUrl(item: Parser.Item & CustomItem): string | undefined {
+  // Try media:content
+  if (item["media:content"]?.$?.url) {
+    return item["media:content"].$.url;
+  }
+
+  // Try media:thumbnail
+  if (item["media:thumbnail"]?.$?.url) {
+    return item["media:thumbnail"].$.url;
+  }
+
+  // Try enclosure (often used for images)
+  if (item.enclosure?.url) {
+    const url = item.enclosure.url;
+    if (url.match(/\.(jpg|jpeg|png|gif|webp)/i)) {
+      return url;
+    }
+  }
+
+  // Try to extract from content HTML
+  const content = item.content || "";
+  const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (imgMatch?.[1]) {
+    return imgMatch[1];
+  }
+
+  return undefined;
+}
+
+// Check relevance using Claude
+async function isRelevant(
+  article: Article,
+  category: Category
+): Promise<boolean> {
+  if (!ANTHROPIC_API_KEY) {
+    console.log("No ANTHROPIC_API_KEY, skipping relevance check");
+    return true;
+  }
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-haiku-latest",
+        max_tokens: 10,
+        messages: [
+          {
+            role: "user",
+            content: `Is this article relevant for the category "${category}" (${CATEGORY_DESCRIPTIONS[category]})?
+
+Title: ${article.title}
+Summary: ${article.summary}
+
+Answer only "yes" or "no".`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`Anthropic API error: ${response.status}`);
+      return true; // Default to relevant if API fails
+    }
+
+    const data = (await response.json()) as {
+      content: { type: string; text: string }[];
+    };
+    const answer = data.content[0]?.text?.toLowerCase().trim();
+    return answer === "yes";
+  } catch (error) {
+    console.error(`Relevance check failed: ${error}`);
+    return true; // Default to relevant if check fails
+  }
+}
+
 // Post to Slack
 async function postToSlack(
   webhookUrl: string,
-  article: { title: string; link: string; source: string; summary: string }
+  article: Article
 ): Promise<boolean> {
   try {
+    const blocks: unknown[] = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*<${article.link}|${article.title}>*\n_${article.source}_`,
+        },
+      },
+    ];
+
+    // Add image if available
+    if (article.imageUrl) {
+      blocks.push({
+        type: "image",
+        image_url: article.imageUrl,
+        alt_text: article.title,
+      });
+    }
+
+    // Add summary
+    blocks.push({
+      type: "section",
+      text: {
+        type: "plain_text",
+        text: article.summary || "No summary available.",
+        emoji: true,
+      },
+    });
+
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*<${article.link}|${article.title}>*\n_${article.source}_`,
-            },
-          },
-          {
-            type: "section",
-            text: {
-              type: "plain_text",
-              text: article.summary || "No summary available.",
-              emoji: true,
-            },
-          },
-          { type: "divider" },
-        ],
-      }),
+      body: JSON.stringify({ blocks }),
     });
     return response.ok;
   } catch (error) {
@@ -117,13 +250,11 @@ function delay(ms: number): Promise<void> {
 
 // Fetch and process a single feed
 async function processFeed(
-  parser: Parser,
   feed: Feed,
-  category: Category,
   posted: PostedArticles,
   cutoffTime: number
-): Promise<{ title: string; link: string; source: string; summary: string }[]> {
-  const articles: { title: string; link: string; source: string; summary: string }[] = [];
+): Promise<Article[]> {
+  const articles: Article[] = [];
 
   try {
     console.log(`Fetching: ${feed.name}`);
@@ -145,6 +276,7 @@ async function processFeed(
         link,
         source: feed.name,
         summary: getSummary(item),
+        imageUrl: getImageUrl(item as Parser.Item & CustomItem),
       });
     }
   } catch (error) {
@@ -165,13 +297,6 @@ async function main() {
   let posted = loadPosted();
   posted = cleanOldEntries(posted);
 
-  const parser = new Parser({
-    timeout: 10000,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; RSSBot/1.0)",
-    },
-  });
-
   const cutoffTime = Date.now() - HOURS_24;
   const categories: Category[] = ["technology", "corporate_finance", "eam_build_up"];
 
@@ -186,9 +311,18 @@ async function main() {
     const feedList = feeds[category];
 
     for (const feed of feedList) {
-      const articles = await processFeed(parser, feed, category, posted, cutoffTime);
+      const articles = await processFeed(feed, posted, cutoffTime);
 
       for (const article of articles) {
+        // Check relevance with AI
+        const relevant = await isRelevant(article, category);
+        if (!relevant) {
+          console.log(`Skipped (not relevant): ${article.title}`);
+          // Still mark as "posted" to avoid re-checking
+          posted[article.link] = Date.now();
+          continue;
+        }
+
         const success = await postToSlack(webhookUrl, article);
         if (success) {
           posted[article.link] = Date.now();
