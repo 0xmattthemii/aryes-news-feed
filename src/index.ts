@@ -206,7 +206,7 @@ async function isRelevant(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-latest",
+        model: "claude-3-5-haiku-20241022",
         max_tokens: 10,
         messages: [
           {
@@ -247,32 +247,24 @@ async function postToSlack(
   article: Article
 ): Promise<boolean> {
   try {
-    const blocks: unknown[] = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*<${article.link}|${article.title}>*\n_${article.source}_\n\n${article.summary || "No summary available."}`,
-        },
+    const sectionBlock: Record<string, unknown> = {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*<${article.link}|${article.title}>*\n_${article.source}_\n\n${article.summary || "No summary available."}`,
       },
-    ];
+    };
 
-    // Add small thumbnail in context block if available
+    // Add image as accessory (displays on the right side)
     if (article.imageUrl) {
-      blocks.push({
-        type: "context",
-        elements: [
-          {
-            type: "image",
-            image_url: article.imageUrl,
-            alt_text: article.title,
-          },
-        ],
-      });
+      sectionBlock.accessory = {
+        type: "image",
+        image_url: article.imageUrl,
+        alt_text: article.title,
+      };
     }
 
-    // Add divider for clear separation
-    blocks.push({ type: "divider" });
+    const blocks: unknown[] = [sectionBlock, { type: "divider" }];
 
     const response = await fetch(webhookUrl, {
       method: "POST",

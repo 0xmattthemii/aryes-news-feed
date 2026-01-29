@@ -15,21 +15,19 @@
     { "name": "Financial Times", "url": "https://www.ft.com/rss/home" },
     { "name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss" },
     { "name": "Harvard Law Corporate Governance", "url": "https://corpgov.law.harvard.edu/feed/" },
-    { "name": "Real Deals", "url": "https://realdeals.eu.com/feed/" },
     { "name": "Private Equity International", "url": "https://www.privateequityinternational.com/feed/" },
+    { "name": "Private Equity Wire", "url": "https://www.privateequitywire.co.uk/feed/" },
+    { "name": "PE Hub", "url": "https://www.pehub.com/feed/" },
     { "name": "TechCrunch Venture", "url": "https://techcrunch.com/category/venture/feed/" },
-    { "name": "PitchBook News", "url": "https://pitchbook.com/news/feed" },
-    { "name": "finews.com", "url": "https://www.finews.com/news/english-news/feed" }
+    { "name": "finews.com", "url": "https://www.finews.com/news/english-news?format=feed&type=rss" }
   ],
 
   "eam_build_up": [
-    { "name": "finews.com", "url": "https://www.finews.com/news/english-news/feed" },
+    { "name": "finews.com", "url": "https://www.finews.com/news/english-news?format=feed&type=rss" },
     { "name": "FINMA News", "url": "https://www.finma.ch/en/rss/news/" },
-    { "name": "Citywire Wealth Manager", "url": "https://citywire.com/wealth-manager/news/rss" },
-    { "name": "Citywire Selector", "url": "https://citywire.com/selector/news/rss" },
     { "name": "International Adviser", "url": "https://www.international-adviser.com/feed/" },
     { "name": "Private Banker International", "url": "https://www.privatebankerinternational.com/feed/" },
-    { "name": "Real Deals", "url": "https://realdeals.eu.com/feed/" },
-    { "name": "L'Agefi", "url": "https://www.agefi.fr/rss" }
+    { "name": "PE Hub", "url": "https://www.pehub.com/feed/" },
+    { "name": "Unquote", "url": "https://www.unquote.com/feeds/rss" }
   ]
 }
