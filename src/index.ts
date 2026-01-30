@@ -1,6 +1,24 @@
 import Parser from "rss-parser";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
+// Logging
+type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
+
+function log(level: LogLevel, message: string, data?: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [${level}]`;
+  const dataStr = data ? ` ${JSON.stringify(data)}` : "";
+  const line = `${prefix} ${message}${dataStr}`;
+
+  if (level === "ERROR") {
+    console.error(line);
+  } else if (level === "WARN") {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+}
+
 // Types
 interface Feed {
   name: string;
@@ -193,9 +211,14 @@ async function isRelevant(
   category: Category
 ): Promise<boolean> {
   if (!ANTHROPIC_API_KEY) {
-    console.log("No ANTHROPIC_API_KEY, skipping relevance check");
+    log("WARN", "No ANTHROPIC_API_KEY set, skipping relevance check — all articles will be posted");
     return true;
   }
+
+  log("DEBUG", `Checking relevance with AI`, {
+    article: article.title,
+    category,
+  });
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -226,7 +249,13 @@ Answer only "yes" or "no".`,
     });
 
     if (!response.ok) {
-      console.error(`Anthropic API error: ${response.status}`);
+      const errorBody = await response.text();
+      log("ERROR", `Anthropic API error — defaulting to relevant`, {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorBody,
+        article: article.title,
+      });
       return true; // Default to relevant if API fails
     }
 
@@ -234,9 +263,21 @@ Answer only "yes" or "no".`,
       content: { type: string; text: string }[];
     };
     const answer = data.content[0]?.text?.toLowerCase().trim();
-    return answer === "yes";
+    const relevant = answer === "yes";
+
+    log("INFO", `AI relevance result: ${relevant ? "RELEVANT" : "NOT RELEVANT"}`, {
+      article: article.title,
+      category,
+      aiAnswer: answer,
+    });
+
+    return relevant;
   } catch (error) {
-    console.error(`Relevance check failed: ${error}`);
+    log("ERROR", `Relevance check exception — defaulting to relevant`, {
+      error: String(error),
+      article: article.title,
+      category,
+    });
     return true; // Default to relevant if check fails
   }
 }
@@ -246,6 +287,12 @@ async function postToSlack(
   webhookUrl: string,
   article: Article
 ): Promise<boolean> {
+  log("INFO", `Posting to Slack: "${article.title}"`, {
+    source: article.source,
+    link: article.link,
+    hasImage: !!article.imageUrl,
+  });
+
   try {
     const sectionBlock: Record<string, unknown> = {
       type: "section",
@@ -265,15 +312,44 @@ async function postToSlack(
     }
 
     const blocks: unknown[] = [sectionBlock, { type: "divider" }];
+    const payload = { blocks, unfurl_links: false, unfurl_media: false };
+
+    log("DEBUG", "Slack request payload", {
+      webhookUrlPrefix: webhookUrl.slice(0, 60) + "...",
+      payloadSize: JSON.stringify(payload).length,
+    });
 
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks, unfurl_links: false, unfurl_media: false }),
+      body: JSON.stringify(payload),
     });
-    return response.ok;
+
+    const responseBody = await response.text();
+
+    if (!response.ok) {
+      log("ERROR", `Slack API returned error`, {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody,
+        article: article.title,
+        webhookUrlPrefix: webhookUrl.slice(0, 60) + "...",
+      });
+      return false;
+    }
+
+    log("INFO", `Slack post succeeded`, {
+      status: response.status,
+      body: responseBody,
+      article: article.title,
+    });
+    return true;
   } catch (error) {
-    console.error(`Failed to post to Slack: ${error}`);
+    log("ERROR", `Failed to post to Slack (network/exception)`, {
+      error: String(error),
+      article: article.title,
+      link: article.link,
+    });
     return false;
   }
 }
@@ -292,19 +368,34 @@ async function processFeed(
   const articles: Article[] = [];
 
   try {
-    console.log(`Fetching: ${feed.name}`);
+    log("INFO", `Fetching feed: ${feed.name}`, { url: feed.url });
     const result = await parser.parseURL(feed.url);
 
+    let totalItems = 0;
+    let skippedAlreadyPosted = 0;
+    let skippedTooOld = 0;
+    let skippedNoLink = 0;
+
     for (const item of result.items) {
+      totalItems++;
       const link = item.link;
-      if (!link) continue;
+      if (!link) {
+        skippedNoLink++;
+        continue;
+      }
 
       // Skip if already posted
-      if (posted[link]) continue;
+      if (posted[link]) {
+        skippedAlreadyPosted++;
+        continue;
+      }
 
       // Check if article is from last 24 hours
       const pubDate = item.pubDate ? new Date(item.pubDate).getTime() : 0;
-      if (pubDate < cutoffTime) continue;
+      if (pubDate < cutoffTime) {
+        skippedTooOld++;
+        continue;
+      }
 
       articles.push({
         title: item.title || "Untitled",
@@ -314,8 +405,19 @@ async function processFeed(
         imageUrl: getImageUrl(item as Parser.Item & CustomItem),
       });
     }
+
+    log("INFO", `Feed fetched: ${feed.name}`, {
+      totalItems,
+      newArticles: articles.length,
+      skippedAlreadyPosted,
+      skippedTooOld,
+      skippedNoLink,
+    });
   } catch (error) {
-    console.error(`Error fetching ${feed.name}: ${error}`);
+    log("ERROR", `Failed to fetch feed: ${feed.name}`, {
+      url: feed.url,
+      error: String(error),
+    });
   }
 
   return articles;
@@ -323,45 +425,93 @@ async function processFeed(
 
 // Main function
 async function main() {
-  console.log("Starting RSS aggregator...");
+  log("INFO", "=== Starting RSS aggregator run ===");
+
+  // Log configuration state
+  for (const [category, url] of Object.entries(WEBHOOK_MAP)) {
+    if (url) {
+      log("INFO", `Webhook configured for ${category}`, {
+        webhookUrlPrefix: url.slice(0, 60) + "...",
+      });
+    } else {
+      log("WARN", `No webhook configured for ${category} — this category will be skipped`);
+    }
+  }
+
+  if (ANTHROPIC_API_KEY) {
+    log("INFO", "Anthropic API key is set — AI relevance filtering enabled");
+  } else {
+    log("WARN", "Anthropic API key is NOT set — all articles will be posted without filtering");
+  }
 
   // Load feeds config
   const feeds: FeedsConfig = JSON.parse(readFileSync(FEEDS_FILE, "utf-8"));
+  log("INFO", "Feeds config loaded", {
+    technology: feeds.technology.length,
+    corporate_finance: feeds.corporate_finance.length,
+    eam_build_up: feeds.eam_build_up.length,
+  });
 
   // Load and clean posted articles
   let posted = loadPosted();
+  const beforeClean = Object.keys(posted).length;
   posted = cleanOldEntries(posted);
+  const afterClean = Object.keys(posted).length;
+  log("INFO", "Posted articles loaded", {
+    total: afterClean,
+    cleaned: beforeClean - afterClean,
+  });
 
   const cutoffTime = Date.now() - HOURS_24;
   const categories: Category[] = ["technology", "corporate_finance", "eam_build_up"];
 
+  // Run counters
+  let totalArticlesFound = 0;
+  let totalRelevant = 0;
+  let totalNotRelevant = 0;
+  let totalPosted = 0;
+  let totalSlackFailures = 0;
+
   for (const category of categories) {
     const webhookUrl = WEBHOOK_MAP[category];
     if (!webhookUrl) {
-      console.log(`No webhook configured for ${category}, skipping...`);
+      log("WARN", `Skipping category: ${category} (no webhook URL)`);
       continue;
     }
 
-    console.log(`\nProcessing category: ${category}`);
+    log("INFO", `--- Processing category: ${category} ---`);
     const feedList = feeds[category];
 
     for (const feed of feedList) {
       const articles = await processFeed(feed, posted, cutoffTime);
+      totalArticlesFound += articles.length;
 
       for (const article of articles) {
         // Check relevance with AI
         const relevant = await isRelevant(article, category);
         if (!relevant) {
-          console.log(`Skipped (not relevant): ${article.title}`);
+          log("INFO", `Skipped (not relevant): "${article.title}"`, {
+            source: article.source,
+            category,
+          });
+          totalNotRelevant++;
           // Still mark as "posted" to avoid re-checking
           posted[article.link] = Date.now();
           continue;
         }
 
+        totalRelevant++;
+
         const success = await postToSlack(webhookUrl, article);
         if (success) {
           posted[article.link] = Date.now();
-          console.log(`Posted: ${article.title}`);
+          totalPosted++;
+        } else {
+          totalSlackFailures++;
+          log("WARN", `Failed to post article — will retry next run`, {
+            article: article.title,
+            link: article.link,
+          });
         }
         // Rate limit delay
         await delay(1000);
@@ -371,17 +521,27 @@ async function main() {
 
   // Save posted articles
   savePosted(posted);
-  console.log("\nDone!");
+
+  log("INFO", "=== Run complete ===", {
+    totalArticlesFound,
+    totalRelevant,
+    totalNotRelevant,
+    totalPosted,
+    totalSlackFailures,
+  });
 }
 
 // Run immediately, then every 30 minutes
 async function run() {
-  await main().catch(console.error);
+  try {
+    await main();
+  } catch (error) {
+    log("ERROR", "Unhandled error in main()", { error: String(error) });
+  }
 }
 
 const THIRTY_MINUTES = 30 * 60 * 1000;
 
+log("INFO", "Scheduler started — running immediately, then every 30 minutes");
 run();
 setInterval(run, THIRTY_MINUTES);
-
-console.log("Scheduler started. Running every 30 minutes.");
